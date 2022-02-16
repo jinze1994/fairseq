@@ -16,6 +16,8 @@ from argparse import Namespace
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
+import sys
+import time
 
 import torch
 import torch.distributed as dist
@@ -256,19 +258,37 @@ def distributed_init(cfg: FairseqConfig):
                     cfg.distributed_training.distributed_init_method,
                 )
             )
-            dist.init_process_group(
-                backend=cfg.distributed_training.distributed_backend,
-                init_method=cfg.distributed_training.distributed_init_method,
-                world_size=cfg.distributed_training.distributed_world_size,
-                rank=cfg.distributed_training.distributed_rank,
-            )
-            logger.info(
-                "initialized host {} as rank {}".format(
-                    socket.gethostname(),
-                    cfg.distributed_training.distributed_rank,
-                )
-            )
-
+            logger.info('Start init')
+            max_time_wait = 600
+            for i in range(max_time_wait):
+                try:
+                    dist.init_process_group(
+                        backend=cfg.distributed_training.distributed_backend,
+                        init_method=cfg.distributed_training.distributed_init_method,
+                        world_size=cfg.distributed_training.distributed_world_size,
+                        rank=cfg.distributed_training.distributed_rank,
+                    )
+                    logger.info(
+                        "initialized host {} as rank {}".format(
+                            socket.gethostname(),
+                            cfg.distributed_training.distributed_rank,
+                        )
+                    )
+                    if torch.distributed.is_initialized():
+                        print("single-machine distributed training is initialized.")
+                        break
+                except ValueError:
+                    # This is caused by TCPStore failure.
+                    print('Retry: {}, with value error {}'.format(
+                        i + 1, sys.exc_info()[0]))
+                    time.sleep(5)
+                    if i == max_time_wait - 1:
+                        print('k8s resource wait too long time')
+                        exit(-1)
+                except Exception:
+                    print('Retry: {}, with value error {}'.format(
+                        i + 1, sys.exc_info()[0]))
+                    exit(-1)
             # perform a dummy all-reduce to initialize the NCCL communicator
             if torch.cuda.is_available():
                 dist.all_reduce(torch.zeros(1).cuda())
@@ -574,6 +594,7 @@ def all_gather_list(data, group=None, max_size=16384):
 
     if group is None:
         group = get_global_group()
+    torch.distributed.barrier(group=group)
     rank = get_rank(group=group)
     world_size = get_world_size(group=group)
 

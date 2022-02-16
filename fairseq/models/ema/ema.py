@@ -112,6 +112,7 @@ class EMA(object):
         def _to_float(t):
             return t.float() if torch.is_floating_point(t) else t
 
+        # for non-float params (like registered symbols), they are copied into this dict and covered in each update
         for param_key in state_dict:
             if param_key in self.fp32_params:
                 self.fp32_params[param_key].copy_(state_dict[param_key])
@@ -150,8 +151,18 @@ class EMA(object):
             if "version" in key:
                 # Do not decay a model.version pytorch param
                 continue
-            ema_param.mul_(decay)
-            ema_param.add_(param.to(dtype=ema_param.dtype), alpha=1-decay)
+
+            # for non-float params (like registered symbols), they are covered in each update
+            if not torch.is_floating_point(ema_param):
+                if ema_param.dtype != param.dtype:
+                    raise ValueError(
+                        "incompatible tensor dtypes between model param and ema param"
+                        + "{} vs. {}".format(param.dtype, ema_param.dtype)
+                    )
+                ema_param.copy_(param)
+            else:
+                ema_param.mul_(decay)
+                ema_param.add_(param.to(dtype=ema_param.dtype), alpha=1-decay)
             ema_state_dict[key] = ema_param
         self.restore(ema_state_dict, build_fp32_params=False)
 

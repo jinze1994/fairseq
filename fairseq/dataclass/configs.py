@@ -715,6 +715,20 @@ class CheckpointConfig(FairseqDataclass):
         },
     )
     model_parallel_size: int = II("common.model_parallel_size")
+    use_ema_weights_to_init_param: bool = field(
+        default=False,
+        metadata={
+            "help": "if the checkpoint has ema weights, then use it to init the model param"
+            "(default: false, use noema weights to init the model param)"
+        },
+    )
+    use_latest_weights_to_init_ema: bool = field(
+        default=False,
+        metadata={
+            "help": "if the model has ema params, then force to use the latest weights in the ckpt to init the ema param, even ema weights exist in the ckpt"
+            "(default: false, use ema weights (if exist) to init the ema param)"
+        },
+    )
 
 
 @dataclass
